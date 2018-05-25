@@ -549,14 +549,15 @@ module ActiveMerchant #:nodoc:
         add_expand_parameters(parameters, options) if parameters
         response = api_request(method, url, parameters, options)
 
-        success = !response.key?("error")
+        success = !response.key?("error") && response["status"] != "failed"
+        error_message = response.fetch("error", {"message" => "No details provided"})["message"]
 
         card = card_from_response(response)
         avs_code = AVS_CODE_TRANSLATOR["line1: #{card["address_line1_check"]}, zip: #{card["address_zip_check"]}"]
         cvc_code = CVC_CODE_TRANSLATOR[card["cvc_check"]]
 
         Response.new(success,
-          success ? "Transaction approved" : response["error"]["message"],
+          success ? "Transaction approved" : error_message,
           response,
           :test => response_is_test?(response),
           :authorization => authorization_from(success, url, method, response),
@@ -568,7 +569,7 @@ module ActiveMerchant #:nodoc:
       end
 
       def authorization_from(success, url, method, response)
-        return response["error"]["charge"] unless success
+        return response.fetch("error", {})["charge"] unless success
 
         if url == "customers"
           [response["id"], response["sources"]["data"].first["id"]].join("|")
@@ -626,6 +627,8 @@ module ActiveMerchant #:nodoc:
       end
 
       def error_code_from(response)
+        return STANDARD_ERROR_CODE_MAPPING['processing_error'] unless response['error']
+
         code = response['error']['code']
         decline_code = response['error']['decline_code'] if code == 'card_declined'
 
